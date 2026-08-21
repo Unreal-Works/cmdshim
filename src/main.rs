@@ -122,7 +122,9 @@ fn resolve_config(explicit: Option<&Path>) -> Result<PathBuf> {
 }
 
 fn canonical_file(path: &Path) -> Result<PathBuf> {
-    fs::canonicalize(path).with_context(|| format!("failed to resolve {}", path.display()))
+    fs::canonicalize(path)
+        .map(normalize_windows_path)
+        .with_context(|| format!("failed to resolve {}", path.display()))
 }
 
 fn parse_config(text: &str, path: &Path) -> Result<Config> {
@@ -165,7 +167,7 @@ fn validate_name(name: &str) -> Result<()> {
 fn materialize(config_path: &Path, config_text: &str, cfg: &Config) -> Result<PathBuf> {
     let root = cache_root()?;
     let current_exe = env::current_exe().context("failed to determine cmdshim executable path")?;
-    let current_exe = fs::canonicalize(&current_exe).unwrap_or(current_exe);
+    let current_exe = normalize_windows_path(fs::canonicalize(&current_exe).unwrap_or(current_exe));
     let project_key = short_hash(config_path.to_string_lossy().as_bytes());
     let dir = root.join(project_key);
     fs::create_dir_all(&dir)
@@ -332,6 +334,20 @@ fn expand(input: &str, config_root: &Path) -> String {
     input.replace("{{config_root}}", &config_root.to_string_lossy())
 }
 
+fn normalize_windows_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(value) = value.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{value}"));
+        }
+        if let Some(value) = value.strip_prefix(r"\\?\") {
+            return PathBuf::from(value);
+        }
+    }
+    path
+}
+
 fn cache_root() -> Result<PathBuf> {
     if let Some(path) = env::var_os("CMDSHIM_CACHE_DIR") {
         return Ok(PathBuf::from(path));
@@ -384,6 +400,19 @@ mod tests {
     #[test]
     fn shell_quote_handles_apostrophe() {
         assert_eq!(sh_quote("a'b"), "'a'\\''b'");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_extended_windows_paths() {
+        assert_eq!(
+            normalize_windows_path(PathBuf::from(r"\\?\C:\cmdshim\cmdshim.exe")),
+            PathBuf::from(r"C:\cmdshim\cmdshim.exe")
+        );
+        assert_eq!(
+            normalize_windows_path(PathBuf::from(r"\\?\UNC\server\share\cmdshim.exe")),
+            PathBuf::from(r"\\server\share\cmdshim.exe")
+        );
     }
 
     #[test]
