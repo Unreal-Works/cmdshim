@@ -6,7 +6,7 @@
 
 ```toml
 [tools]
-cmdshim = "github:Unreal-Works/cmdshim"
+"github:Unreal-Works/cmdshim" = "latest"
 
 [env]
 _.path = ["{{ exec(command='cmdshim path') }}"]
