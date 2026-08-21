@@ -9,7 +9,7 @@
 "github:Unreal-Works/cmdshim" = "latest"
 
 [env]
-_.path = ["{{ exec(command='cmdshim path') }}"]
+_.path = { path = ["{{ exec(command='cmdshim path') }}"], tools = true }
 
 [_.cmdshim.acme]
 run = ["cargo", "run", "--quiet", "--manifest-path", "{{config_root}}/Cargo.toml", "--"]
