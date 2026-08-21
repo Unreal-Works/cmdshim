@@ -19,7 +19,7 @@ run = ["pnpm", "exec", "tsx", "{{config_root}}/scripts/codegen.ts"]
 
 [_.cmdshim.server]
 run = ["python", "-m", "myapp.server"]
-cwd = "{{config_root}}/backend"
+dir = "{{config_root}}/backend"
 env = { PYTHONUNBUFFERED = "1" }
 ```
 
@@ -59,11 +59,11 @@ Each configuration file gets a stable hashed directory. Wrappers are regenerated
 
 Each `[_.cmdshim.<name>]` table supports:
 
-- `run` — required array of argv strings. No shell parsing is performed.
-- `cwd` — optional working directory. Relative values resolve from the directory containing the config file; the default is that directory.
-- `env` — optional environment variables.
+- `run`: required array of argv strings. No shell parsing is performed.
+- `dir`: optional working directory. Relative values resolve from the directory containing the config file; the default is the caller's current working directory. `cwd` is accepted as an alias.
+- `env`: optional environment variables.
 
-The literal token `{{config_root}}` is expanded in `run`, `cwd`, and `env` values.
+The literal token `{{config_root}}` is expanded in `run`, `dir`, and `env` values.
 
 ## Notes
 

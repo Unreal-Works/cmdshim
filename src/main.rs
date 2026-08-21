@@ -63,7 +63,8 @@ struct Config {
 #[derive(Debug, Clone, Deserialize)]
 struct ShimConfig {
     run: Vec<String>,
-    cwd: Option<String>,
+    #[serde(alias = "cwd")]
+    dir: Option<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
 }
@@ -285,17 +286,7 @@ fn exec_shim(config_path: &Path, cfg: &Config, name: &str, args: &[OsString]) ->
         .context("configuration file has no parent directory")?;
     let expanded: Vec<String> = shim.run.iter().map(|s| expand(s, config_root)).collect();
 
-    let cwd = match shim.cwd.as_deref() {
-        Some(value) => {
-            let path = PathBuf::from(expand(value, config_root));
-            if path.is_absolute() {
-                path
-            } else {
-                config_root.join(path)
-            }
-        }
-        None => config_root.to_path_buf(),
-    };
+    let cwd = resolve_dir(shim.dir.as_deref(), config_root)?;
 
     let mut cmd = Command::new(&expanded[0]);
     cmd.args(&expanded[1..]);
@@ -328,6 +319,20 @@ fn exec_shim(config_path: &Path, cfg: &Config, name: &str, args: &[OsString]) ->
 
     eprintln!("cmdshim: child terminated without an exit code; returning 1");
     Ok(1)
+}
+
+fn resolve_dir(value: Option<&str>, config_root: &Path) -> Result<PathBuf> {
+    match value {
+        Some(value) => {
+            let path = PathBuf::from(expand(value, config_root));
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                Ok(config_root.join(path))
+            }
+        }
+        None => env::current_dir().context("failed to determine current directory"),
+    }
 }
 
 fn expand(input: &str, config_root: &Path) -> String {
@@ -435,6 +440,39 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg.cmdshim["acme"].run[0], "cargo");
+    }
+
+    #[test]
+    fn parses_dir_and_legacy_cwd_alias() {
+        let cfg = parse_config(
+            r#"
+                [_.cmdshim.dir]
+                run = ["echo"]
+                dir = "{{config_root}}/backend"
+                [_.cmdshim.legacy]
+                run = ["echo"]
+                cwd = "{{config_root}}/legacy"
+            "#,
+            Path::new("mise.toml"),
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.cmdshim["dir"].dir.as_deref(),
+            Some("{{config_root}}/backend")
+        );
+        assert_eq!(
+            cfg.cmdshim["legacy"].dir.as_deref(),
+            Some("{{config_root}}/legacy")
+        );
+    }
+
+    #[test]
+    fn defaults_dir_to_the_actual_current_directory() {
+        let actual = env::current_dir().unwrap();
+        assert_eq!(
+            resolve_dir(None, Path::new("/tmp/project")).unwrap(),
+            actual
+        );
     }
 
     #[test]
