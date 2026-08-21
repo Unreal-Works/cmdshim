@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - windows-2025
+          - windows-11-arm
+          - macos-15-intel
+          - macos-15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy,rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - name: Run tests
+        run: cargo test --all-targets --all-features --locked
+
+  create-release:
+    name: Create GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create release
+        uses: taiki-e/create-gh-release-action@v1.11.0
+
+  release:
+    name: Release (${{ matrix.target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            build_tool: cargo
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            build_tool: cargo
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-24.04
+            build_tool: cross
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04
+            build_tool: cross
+          - target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-24.04
+            build_tool: cross
+          - target: i686-unknown-linux-gnu
+            os: ubuntu-24.04
+            build_tool: cross
+          - target: x86_64-unknown-freebsd
+            os: ubuntu-24.04
+            build_tool: cross
+          - target: x86_64-pc-windows-msvc
+            os: windows-2025
+            build_tool: cargo
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+            build_tool: cargo
+          - target: i686-pc-windows-msvc
+            os: windows-2025
+            build_tool: cargo
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            build_tool: cargo
+          - target: aarch64-apple-darwin
+            os: macos-15
+            build_tool: cargo
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+      - name: Build and upload release asset
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: cmdshim
+          target: ${{ matrix.target }}
+          build-tool: ${{ matrix.build_tool }}
+          include: LICENSE,README.md
+          checksum: sha256
+          locked: true
